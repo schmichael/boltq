@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ func errf(format string, args ...interface{}) {
 func main() {
 	sep := flag.String("sep", ".", "bucket separator")
 	verbose := flag.Bool("v", false, "verbose output")
+	tree := flag.Bool("tree", false, "dump bucket tree")
 	flag.Parse()
 	if flag.NArg() < 1 {
 		flag.Usage()
@@ -43,6 +45,14 @@ func main() {
 		db:      db,
 		sep:     *sep,
 		verbose: *verbose,
+	}
+
+	if *tree {
+		if err := c.dumpTree(); err != nil {
+			errf("error: %v", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	switch flag.NArg() {
@@ -214,5 +224,52 @@ func (c *cli) setKey(bucketName, keyName, value string) error {
 		}
 
 		return bucket.Put([]byte(keyName), []byte(value))
+	})
+}
+
+func (c *cli) dumpTree() error {
+	return c.displayBucket(nil, 0)
+}
+
+func (c *cli) displayBucket(bkt *bolt.Bucket, depth int) error {
+	indent := strings.Repeat("  ", depth)
+	buckets := []string{}
+	keys := []string{}
+	vals := map[string]int{}
+	return c.db.View(func(tx *bolt.Tx) error {
+		var cur *bolt.Cursor
+		if bkt == nil {
+			cur = tx.Cursor()
+		} else {
+			cur = bkt.Cursor()
+		}
+		for k, v := cur.First(); k != nil; k, v = cur.Next() {
+			kstr := string(k)
+			if v == nil {
+				buckets = append(buckets, kstr)
+			} else {
+				keys = append(keys, kstr)
+				vals[kstr] = len(v)
+			}
+		}
+
+		sort.Strings(buckets)
+		for _, k := range buckets {
+			fmt.Printf("%s* %s\n", indent, k)
+			var child *bolt.Bucket
+			if bkt == nil {
+				child = tx.Bucket([]byte(k))
+			} else {
+				child = bkt.Bucket([]byte(k))
+			}
+			if err := c.displayBucket(child, depth+1); err != nil {
+				return err
+			}
+		}
+
+		for _, k := range keys {
+			fmt.Printf("%s - %s (%d bytes)\n", indent, k, vals[k])
+		}
+		return nil
 	})
 }
