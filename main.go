@@ -29,7 +29,7 @@ func main() {
 
 	f, err := os.Open(path)
 	if err != nil {
-		errf("error opening db: %v", err)
+		errf("error opening db: path=%v error=%v", path, err)
 		os.Exit(1)
 	}
 	f.Close()
